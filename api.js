@@ -33,6 +33,11 @@
   });
   window.API = API;
 
+  /* 2026-10-03: 管理员/用户密钥（X-Kol-Key）—— 有则随每个请求带上（后端权威校验） */
+  function _keyHdr() {
+    try { var k = localStorage.getItem('kol-key'); return k ? { 'X-Kol-Key': k } : {}; } catch (e) { return {}; }
+  }
+
   /* ── 契约（P0#3）：声明每个接口「我依赖哪些字段」────────────────
    * 为什么：adapter 里字段一旦改名 → 以前静默退 mock → 界面显示看着像真的假数据。
    * 现在：字段不符 → apiGet 抛 ContractError → 记 API.broken → 徽标变红 + 顶部横幅。
@@ -100,7 +105,7 @@
     if (params) Object.keys(params).forEach(function (k) { url.searchParams.set(k, params[k]); });
     var ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var t = ac ? setTimeout(function () { ac.abort(); }, timeoutMs || (HEAVY[path] ? TIMEOUT_HEAVY : TIMEOUT)) : null;
-    return fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' }, signal: ac ? ac.signal : undefined })
+    return fetch(url, { cache: 'no-store', headers: Object.assign({ Accept: 'application/json' }, _keyHdr()), signal: ac ? ac.signal : undefined })
       .then(function (r) {
         if (!r.ok) throw new Error(path + ' → HTTP ' + r.status);
         return r.json();
@@ -138,7 +143,7 @@
     if (opts.acct && !payload.acct) payload.acct = opts.acct;
     var ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var t = ac ? setTimeout(function () { ac.abort(); }, opts.timeout || TIMEOUT) : null;
-    var headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+    var headers = Object.assign({ 'Content-Type': 'application/json', Accept: 'application/json' }, _keyHdr());
     if (opts.idem) headers['Idempotency-Key'] = opts.idem;
     return fetch(API.base + path, {
       method: 'POST', cache: 'no-store', headers: headers,

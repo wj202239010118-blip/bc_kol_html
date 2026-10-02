@@ -47,12 +47,10 @@
   }
 
   /* ③ 签名头 */
-  function signHeaders(dev, method, path, query, ctype, idem) {
+  function signHeaders(dev, method, path, query, ctype, bodySha, idem) {
     var ts = String(Date.now()), nonce = uuids(24), reqId = (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now()));
-    var body = null;
-    /* body 由调用方拼好（这里签名 body 交给 postBody 变体） */
     var input = ['KOL1', dev.device_id, ts, nonce, reqId, String(method).toUpperCase(), path,
-                 query || '', ctype || '', '', idem || '', AUDIENCE].join('\n');
+                 query || '', ctype || '', bodySha || '', idem || '', AUDIENCE].join('\n');
     return crypto.subtle.importKey('jwk', dev.priv, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
       .then(function (k) { return crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, k, new TextEncoder().encode(input)); })
       .then(function (sig) {
@@ -71,15 +69,66 @@
     return p.join('&');
   }
 
-  /* 带签名的 fetch（body 为空；读都用 GET） */
-  function signedFetch(method, path, params) {
+  var _aes = null, _srvsrv = null;
+  function pubkey() {
+    if (_srvsrv) return _srvsrv;
+    return fetch(base() + '/ext/pubkey', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+      _srvsrv = (j && j.jwk) || null; return _srvsrv;
+    });
+  }
+  function deriveAes() {
+    if (_aes) return _aes;
+    return Promise.all([ensureKey(), pubkey()]).then(function (r) {
+      var dev = r[0], pk = r[1];
+      if (!pk) throw new Error('no server pubkey');
+      return crypto.subtle.importKey('jwk', dev.priv, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']).then(function (priv) {
+        return crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: pk.x, y: pk.y }, { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+          .then(function (spub) { return crypto.subtle.deriveBits({ name: 'ECDH', public: spub }, priv, 256); });
+      }).then(function (bits) {
+        return crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']);
+      }).then(function (hk) {
+        return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('kol-e2e'), info: new TextEncoder().encode('kol-ext-e2e') }, hk, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      }).then(function (k) { _aes = k; return k; });
+    });
+  }
+  function encBlob(bytes) {
+    return deriveAes().then(function (k) {
+      var nonce = crypto.getRandomValues(new Uint8Array(12));
+      return crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, k, bytes).then(function (ct) {
+        var out = new Uint8Array(12 + ct.byteLength); out.set(nonce, 0); out.set(new Uint8Array(ct), 12); return out;
+      });
+    });
+  }
+  function decBlob(buf) {
+    return deriveAes().then(function (k) {
+      var b = new Uint8Array(buf);
+      return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.slice(0, 12) }, k, b.slice(12));
+    });
+  }
+
+  /* 带签名的 fetch：E2E 加密——请求体加密、响应解密（都带 X-KOL-Enc: aesgcm） */
+  function signedFetch(method, path, params, bodyObj) {
     return ensureKey().then(function (dev) {
       var query = buildQuery(params);
-      return signHeaders(dev, method, path, query, '').then(function (s) {
-        var url = base() + path + (query ? ('?' + query) : '');
-        return fetch(url, { method: method, headers: Object.assign({ Accept: 'application/json' }, s.headers), cache: 'no-store' });
+      var ctype = bodyObj ? 'application/octet-stream' : '';
+      var bodyP = bodyObj ? encBlob(new TextEncoder().encode(JSON.stringify(bodyObj))) : Promise.resolve(null);
+      return bodyP.then(function (cipher) {
+        var shaP = cipher ? sha256b64(cipher) : Promise.resolve('');
+        return shaP.then(function (bsha) {
+          return signHeaders(dev, method, path, query, ctype, bsha).then(function (s) {
+            var url = base() + path + (query ? ('?' + query) : '');
+            var h = Object.assign({ Accept: 'application/json', 'X-KOL-Enc': 'aesgcm' }, s.headers);
+            try { var _k = localStorage.getItem('kol-key'); if (_k) h['X-Kol-Key'] = _k; } catch (e) {}
+            if (ctype) h['Content-Type'] = ctype;
+            return fetch(url, { method: method, headers: h, body: cipher || undefined, cache: 'no-store' }).then(function (r) {
+              var enc = (r.headers.get('X-KOL-Enc') || '').toLowerCase() === 'aesgcm';
+              if (!enc) return r.json();
+              return r.arrayBuffer().then(decBlob).then(function (pt) { return JSON.parse(new TextDecoder().decode(pt)); });
+            });
+          });
+        });
       });
-    }).then(function (r) { return r.json(); });
+    });
   }
 
   /* ④ 读：内部路径 → op → /ext/read */
@@ -89,11 +138,15 @@
     var q = Object.assign({ op: op }, params || {});
     return signedFetch('GET', '/ext/read', q);
   }
-  /* 写：op 显式给（当前后端 WRITE_OPS 默认空） */
+  /* 写：路径 → op（对齐后端 WRITE_OPS）；也可 opts.op 显式覆盖 */
+  var WRITE_OP_BY_PATH = {
+    '/notes-sync': 'notes-sync', '/report-ledger': 'report-ledger', '/withdraw-step': 'withdraw-step',
+    '/tg-send': 'tg-send', '/group-members': 'group-members', '/create-group': 'create-group'
+  };
   function post(path, body, opts) {
-    var op = (opts && opts.op) || null;
-    if (!op) return Promise.reject(new Error('ext 模式写需显式 op: ' + path));
-    return signedFetch('POST', '/ext/write', Object.assign({ op: op }, (opts && opts.query) || {}));
+    var op = (opts && opts.op) || WRITE_OP_BY_PATH[path] || null;
+    if (!op) return Promise.reject(new Error('ext 模式不支持(写): ' + path));
+    return signedFetch('POST', '/ext/write', Object.assign({ op: op }, (opts && opts.query) || {}), body || {});
   }
 
   /* ② 自助登记：request → 轮询 status → claim */

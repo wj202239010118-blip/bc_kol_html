@@ -39,3 +39,12 @@ python3 serve.py            # http://127.0.0.1:8091
 ## 数据
 
 当前全部为 **mock**（`mock.js`），`api.js` 是预留的接口适配层（占位/降级）。接真实接口时只改 `api.js` 与各视图的数据来源，UI 不动。
+
+## 密钥（管理员 / 用户，2026-10-03）
+
+后端权威（`scripts/kol_keys.py`；库 `.secrets/kol_keys.json`，**只存哈希**，可吊销）：
+- **管理员密钥** `role=admin` → 全读写；**用户密钥** `role=user` → 只读。
+- 登录页「**用密钥登录**」：校验 `GET {base}/ext/me`（带 `X-Kol-Key`）→ 写 `kol-key`/`kol-role`。
+- 设置 › 账号管理：**admin** 才显示「生成用户密钥」→ `POST {base}/keys/new`（明文只显示一次）。
+- `X-Kol-Key` 随每个请求带上（`api.js` / `ext.js` 已加）；`user` 远程请求非 GET 一律 403。
+- `base` = `localStorage['kol-ext-base']`（公网网关）或 `kol-api-base`（默认本机 `127.0.0.1:8765`）。

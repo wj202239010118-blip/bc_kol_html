@@ -943,6 +943,8 @@ const screens = {
             <div class="muted" style="font-size:var(--fs-xs)">主账号 ${owner.length} 个（仅限本设备）· 同事账号 ${staff.length} 个。口令只存本机（随机盐 + PBKDF2），仓库里没有任何口令/盐/哈希。</div>
             <div class="row"><button class="btn primary" data-auth-gen>生成同事账号</button><button class="btn" data-auth-logout>退出登录</button><button class="btn ghost" data-auth-clear>清空本机账号</button></div>
             ${state.ui.newAcct ? `<div class="notice ok">新账号（只显示这一次，抄给同事）：<b class="mono">${esc(state.ui.newAcct.u)}</b> / <b class="mono">${esc(state.ui.newAcct.pw)}</b> <button class="btn sm ghost" data-auth-copy>复制</button></div>` : ''}
+            ${((window.AUTH && AUTH.role && AUTH.role()) === 'admin') ? `<div class="row" style="margin-top:var(--sp-3)"><button class="btn" data-auth-newkey>生成用户密钥（同事）</button><span class="muted" style="font-size:var(--fs-xs);align-self:center">user=只读 · admin=全权限</span></div>` : ''}
+            ${state.ui.newKey ? `<div class="notice ok">新用户密钥（<b>只显示这一次</b>，发给同事）：<b class="mono" style="word-break:break-all">${esc(state.ui.newKey.key)}</b> <button class="btn sm ghost" data-auth-copykey>复制</button></div>` : ''}
           </div>
           <div class="section" style="margin-top:var(--sp-4)"><div class="section-head"><span class="section-title">本机账号</span><span class="eyebrow">${accts.length}</span></div>
             <div class="rows card">${accts.map(a => `<div class="rowitem"><div class="avatar">${esc(a.u[0].toUpperCase())}</div>
@@ -1446,6 +1448,16 @@ document.addEventListener('click', e => {
     return;
   }
   if (t.closest('[data-auth-copy]')) { const n = state.ui.newAcct || {}; copyText((n.u || '') + ' / ' + (n.pw || '')); return; }
+  if (t.closest('[data-auth-newkey]')) {
+    const base = (localStorage.getItem('kol-ext-base') || localStorage.getItem('kol-api-base') || 'http://127.0.0.1:8765').replace(/\/+$/, '');
+    const kk = (localStorage.getItem('kol-key') || '');
+    fetch(base + '/keys/new', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, kk ? { 'X-Kol-Key': kk } : {}), body: JSON.stringify({ role: 'user', label: 'colega' }) })
+      .then(r => r.json())
+      .then(d => { if (d && d.ok && d.key) { state.ui.newKey = d; toast('已生成用户密钥（只显示这一次）'); } else { toast('生成失败：' + ((d && (d.error || d.err)) || '无权限')); } render(); })
+      .catch(e => { toast('生成失败：' + ((e && e.message) || e)); });
+    return;
+  }
+  if (t.closest('[data-auth-copykey]')) { const n = state.ui.newKey || {}; copyText(n.key || ''); return; }
   const arv = t.closest('[data-auth-revoke]');
   if (arv) { if (window.AUTH) AUTH.revoke(arv.dataset.authRevoke); toast('已撤销 ' + arv.dataset.authRevoke); render(); return; }
   if (t.closest('[data-auth-logout]')) { if (window.AUTH) AUTH.logout().then(() => location.reload()); return; }

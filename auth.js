@@ -69,7 +69,11 @@
     hasWC: HAS_WC,
     ready() { const d = db(); return !!(d.accounts && d.accounts.length); },     /* 是否已初始化过主账号 */
     session() { const d = db(); return d.session && find(d, d.session.u) ? d.session : null; },
-    async logout() { const d = db(); d.session = null; save(d); },
+    /* 2026-10-03: 角色 —— 本地 owner=admin / staff=user；密钥登录写 kol-role。 */
+    role() { try { return localStorage.getItem('kol-role') || ''; } catch (_) { return ''; } },
+    hasKey() { try { return !!localStorage.getItem('kol-key'); } catch (_) { return false; } },
+    logged() { return !!(AUTH.session() || AUTH.hasKey()); },
+    async logout() { const d = db(); d.session = null; save(d); try { localStorage.removeItem('kol-key'); localStorage.removeItem('kol-role'); } catch (_) {} },
     fingerprint: fpHash,
 
     /* 首次初始化：建主账号并绑定当前设备 */
@@ -136,7 +140,7 @@
   function gate(done) {
     const box = document.querySelector('.auth-wrap');
     const app = document.querySelector('.app');
-    if (AUTH.session()) { if (box) box.remove(); if (app) app.style.visibility = ''; return done(); }
+    if (AUTH.logged()) { if (box) box.remove(); if (app) app.style.visibility = ''; return done(); }
     if (app) app.style.visibility = 'hidden';           /* 未登录：藏起应用（内容不渲染） */
     const first = !AUTH.ready();
     const node = el(`<div class="auth-wrap">
@@ -147,11 +151,14 @@
         <div class="field"><label>口令</label><input class="input" type="password" data-ap autocomplete="${first ? 'new-password' : 'current-password'}" placeholder="口令"></div>
         <div class="field" data-first-only ${first ? '' : 'style="display:none"'}><label>恢复码（忘了口令时用，请抄走）</label>
           <div class="row"><input class="input grow" data-arc placeholder="设置一个只有你知道的恢复码"><button class="btn sm" data-arc-gen>随机生成</button></div></div>
+        <div class="field" data-key-only style="display:none"><label>密钥</label>
+          <input class="input" data-ak placeholder="kolk_…（管理员/用户密钥）" autocomplete="off"></div>
         <div class="notice bad" data-err style="display:none"></div>
         <div class="row" style="margin-top:var(--sp-4)"><button class="btn primary grow" data-ago>${first ? '创建并进入' : '登录'}</button></div>
         <div class="row" style="margin-top:var(--sp-3)">
           <button class="btn sm ghost grow" data-arc-open ${first ? 'style="display:none"' : ''}>忘记口令</button>
-          <span class="muted" style="font-size:var(--fs-micro);align-self:center;flex:2">主账号仅限主设备；同事请用下发的账号</span>
+          <button class="btn sm ghost grow" data-key-open>用密钥登录</button>
+          <span class="muted" style="font-size:var(--fs-micro);align-self:center;flex:2">同事请用下发的账号/密钥</span>
         </div>
         <div class="auth-note">本设备：${esc((navigator.platform || '') + ' · ' + (navigator.userAgent.match(/(Chrome|Safari|Firefox|Edg)\/[\d.]+/) || ['', '未知浏览器'])[1])}${AUTH.hasWC ? '' : '（当前非安全上下文，口令强度降级）'}</div>
       </div></div>`);
@@ -162,7 +169,29 @@
     const showErr = m => { const e = q('[data-err]'); e.textContent = m; e.style.display = ''; };
     q('[data-arc-gen]').onclick = () => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; q('[data-arc]').value = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => c[b % c.length]).join('').replace(/(.{4})(?=.)/g, '$1-'); };
     q('[data-arc-open]').onclick = () => { node.dataset.mode = node.dataset.mode === 'rc' ? '' : 'rc'; q('[data-ago]').textContent = node.dataset.mode === 'rc' ? '重置口令并进入' : '登录'; q('[data-err]').style.display = 'none'; };
+    /* 2026-10-03: 「用密钥登录」模式 */
+    q('[data-key-open]').onclick = () => {
+      const km = node.dataset.mode !== 'key';
+      node.dataset.mode = km ? 'key' : '';
+      ['[data-au]', '[data-ap]', '[data-arc]'].forEach(s => { const n = q(s); if (n) n.closest('.field').style.display = km ? 'none' : ''; });
+      q('[data-first-only]').style.display = (km || !first) ? 'none' : '';
+      q('[data-key-only]').style.display = km ? '' : 'none';
+      q('[data-ago]').textContent = km ? '用密钥进入' : (first ? '创建并进入' : '登录');
+      q('[data-err]').style.display = 'none';
+    };
     const submit = async () => {
+      if (node.dataset.mode === 'key') {
+        const k = (q('[data-ak]').value || '').trim();
+        if (!k) return showErr('请粘贴密钥');
+        try {
+          const base = (localStorage.getItem('kol-ext-base') || localStorage.getItem('kol-api-base') || 'http://127.0.0.1:8765').replace(/\/+$/, '');
+          const r = await fetch(base + '/ext/me', { headers: { 'X-Kol-Key': k }, cache: 'no-store' }).then(x => x.json());
+          if (!r || !r.ok || !r.role) return showErr('密钥无效或已吊销');
+          localStorage.setItem('kol-key', k); localStorage.setItem('kol-role', r.role);
+          document.querySelectorAll('.auth-wrap').forEach(n => n.remove()); if (app) app.style.visibility = '';
+          return done();
+        } catch (e) { return showErr('校验失败：' + ((e && e.message) || e)); }
+      }
       const u = q('[data-au]').value.trim(), p = q('[data-ap]').value;
       if (!u || !p) return showErr('账号和口令都要填');
       let r;
@@ -173,6 +202,7 @@
         r = await AUTH.initOwner(u, p, rc);
       } else r = await AUTH.login(u, p);
       if (!r.ok) return showErr(r.err + (r.code === 'DEV' ? '（可点「忘记口令」用恢复码重绑本设备）' : ''));
+      try { localStorage.setItem('kol-role', (first || r.kind === 'owner') ? 'admin' : 'user'); } catch (_) {}
       document.querySelectorAll('.auth-wrap').forEach(n => n.remove()); if (app) app.style.visibility = '';
       done();
     };

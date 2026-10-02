@@ -1,0 +1,1 @@
+# 阻止 GitHub Pages 用 Jekyll 处理（纯静态站；避免 Liquid 曲解 JS 里的 {{ }}）
