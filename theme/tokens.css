@@ -1,0 +1,88 @@
+/* ══════════════════════════════════════════════════════════════
+   KOL UI — tokens（Premium Utilitarian Minimalism / 编辑风）
+   暖单色 · 1px #EAEAEA 结构线 · 墨黑主按钮 · 粉彩仅用于语义标签
+   禁：Inter/Roboto · 重投影 · 渐变/霓虹 · 大色块背景 · emoji
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  /* warm monochrome */
+  --bone:#f4f5f8;      /* canvas */
+  --paper:#ffffff;     /* card */
+  --shell:#eef0f4;     /* inset / hover */
+  --shell-2:#e6e9ef;
+  --line:#eaeaea;      /* the one border */
+  --line-2:#f0efec;
+  --line-strong:#e0dfdb;
+
+  --ink:#191918;       /* off-black, never #000 */
+  --ink-2:#2f3437;
+  --mute:#787774;
+  --faint:#a8a7a2;
+
+  /* muted pastels — semantic only */
+  --green-bg:#edf3ec; --green-fg:#346538;
+  --amber-bg:#fbf3db; --amber-fg:#8a5d0a;
+  --red-bg:#fdebec;   --red-fg:#9f2f2d;
+  --blue-bg:#e1f3fe;  --blue-fg:#1f6c9f;
+  --violet-bg:#f2effb;--violet-fg:#5b4b9e;
+
+  /* semantic mapping */
+  --bg:var(--bone);
+  --surface:var(--paper);
+  --surface-2:var(--shell);
+  --surface-3:var(--shell-2);
+  --text:var(--ink);
+  --text-2:var(--ink-2);
+  --text-3:var(--mute);
+  --text-4:var(--faint);
+
+  --accent:#0f766e;             /* brand teal */
+  --accent-hover:#115e59;
+  --accent-soft:rgba(15,118,110,.10);
+  --focus:rgba(15,118,110,.34);
+
+  /* ultra-diffuse, near-invisible */
+  --sh-1:0 1px 2px rgba(20,20,19,.05), 0 2px 6px rgba(15,118,110,.045);
+  --sh-hover:0 4px 14px rgba(20,20,19,.07), 0 1px 3px rgba(15,118,110,.06);
+  --sh-pop:0 12px 34px rgba(20,20,19,.14), 0 3px 8px rgba(20,20,19,.06);
+
+  --r-xs:6px; --r-sm:9px; --r:13px; --r-lg:18px; --r-shell:24px; --r-full:999px;
+
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px;
+
+  --sans:"SF Pro Display","SF Pro Text",-apple-system,BlinkMacSystemFont,"Geist","Segoe UI",system-ui,sans-serif;
+  --mono:"SF Mono","Geist Mono",ui-monospace,Menlo,monospace;
+  --fs-micro:10px; --fs-xs:11.5px; --fs-sm:12.5px; --fs:13.5px; --fs-md:15px; --fs-lg:19px; --fs-xl:24px; --fs-2xl:34px;
+  --lh:1.6; --lh-tight:1.1;
+
+  --t-fast:200ms cubic-bezier(.2,.6,.2,1);
+  --t:600ms cubic-bezier(.16,1,.3,1);
+  --spring:cubic-bezier(.16,1,.3,1);
+
+  color-scheme:light;
+}
+
+[data-theme="dark"] {
+  --bone:#0a0a0c;
+  --paper:#141417;
+  --shell:#1b1b20;
+  --shell-2:#232329;
+  --line:#26262c;
+  --line-2:#1e1e23;
+  --line-strong:#34343c;
+  --ink:#f2f2f5;
+  --ink-2:#d9d9df;
+  --mute:#9a9aa3;
+  --faint:#6a6a73;
+  --green-bg:#1d2a1e; --green-fg:#88b58a;
+  --amber-bg:#2e2715; --amber-fg:#d9b061;
+  --red-bg:#2e1c1d;   --red-fg:#e08a88;
+  --blue-bg:#14242e;  --blue-fg:#7fb6d8;
+  --violet-bg:#221f2e;--violet-fg:#a99ad6;
+  --bg:var(--bone); --surface:var(--paper); --surface-2:var(--shell); --surface-3:var(--shell-2);
+  --text:var(--ink); --text-2:var(--ink-2); --text-3:var(--mute); --text-4:var(--faint);
+  --accent:#2dd4bf; --accent-hover:#5eead4; --accent-soft:rgba(45,212,191,.14); --focus:rgba(45,212,191,.34);
+  --sh-1:0 1px 2px rgba(0,0,0,.35);
+  --sh-hover:0 2px 10px rgba(0,0,0,.4);
+  --sh-pop:0 10px 34px rgba(0,0,0,.55);
+  color-scheme:dark;
+}

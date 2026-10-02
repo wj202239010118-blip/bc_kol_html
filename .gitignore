@@ -1,0 +1,9 @@
+# 本地临时/调试产物（脚本用完即删，别提交）
+tests/_*
+*.log
+.DS_Store
+__pycache__/
+
+# 本地隐私（真实达人邮箱/TG/本地路径样本，绝不外发）
+.api-samples/
+.backups/

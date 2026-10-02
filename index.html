@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>KOL 控制台</title>
+<link rel="stylesheet" href="theme/reset.css?v=2">
+<link rel="stylesheet" href="theme/tokens.css?v=2">
+<link rel="stylesheet" href="theme/primitives.css?v=2">
+<link rel="stylesheet" href="theme/layout.css?v=2">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="mark">K</span><span>KOL</span></div>
+    <div class="grow">
+      <div class="crumb" id="crumb"></div>
+      <div class="title" id="title">概览</div>
+    </div>
+    <button class="cmdk" id="cmdkBtn" title="命令">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg>
+      <span>搜索 / 命令</span><kbd>⌘K</kbd>
+    </button>
+    <button class="btn icon ghost" id="refreshBtn" title="刷新" aria-label="刷新">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 4v7h-7"/></svg>
+    </button>
+    <button class="btn icon ghost" id="themeBtn" title="明暗切换" aria-label="明暗切换"></button>
+  </header>
+
+  <div class="navwrap" id="navwrap">
+    <button class="navscroll" id="navL" data-navsc="-1" aria-label="向左滚动"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+    <nav class="navrow" id="nav" aria-label="主导航"></nav>
+    <button class="navscroll" id="navR" data-navsc="1" aria-label="向右滚动"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+  </div>
+
+  <div class="subbar" id="subnavWrap"><div class="seg" id="subnav" role="tablist"></div></div>
+
+  <main class="main" id="view"></main>
+</div>
+
+<div id="fabMount"></div>
+<div id="sheetMount"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="mock.js?v=2"></script>
+<script src="api.js?v=2"></script>
+<script src="ext.js?v=2"></script>
+<script src="auth.js?v=2"></script>
+<script src="app.js?v=2"></script>
+</body>
+</html>

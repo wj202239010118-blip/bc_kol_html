@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>响应式溢出检测（全屏遍历）</title>
+<style>
+  body{font:13px -apple-system,system-ui,sans-serif;margin:0;background:#111;color:#eee}
+  .row{display:flex;gap:14px;padding:12px;flex-wrap:wrap;align-items:flex-start}
+  .cell{background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:8px}
+  .cap{font:11px ui-monospace,monospace;margin-bottom:6px;color:#aaa;max-width:520px}
+  .bad{color:#ff6b6b;font-weight:700}.ok{color:#5cd68c;font-weight:700}
+  iframe{border:1px solid #444;background:#fff;display:block}
+  #out{white-space:pre-wrap;padding:12px;font:11px ui-monospace,monospace;background:#000;margin:12px}
+</style>
+</head>
+<body>
+<div class="row" id="row"></div>
+<pre id="out">running…</pre>
+<script>
+const WIDTHS = [240, 300, 380, 520, 760, 1200];
+const SURFACES = ['panel', 'app', 'web'];
+
+function walk(doc) {
+  const de = doc.documentElement;
+  const g = s => doc.querySelector(s);
+  const ga = s => [...doc.querySelectorAll(s)];
+  const over = [], undef = [];
+  let views = 0;
+  const chk = tag => {
+    views++;
+    if (de.scrollWidth > de.clientWidth + 1) over.push(tag);
+    const t = doc.getElementById('view').innerText;
+    if (/undefined|NaN/.test(t)) undef.push(tag);
+  };
+  // depth ≤2 嵌套子tab 穷举
+  function explore(tag, depth) {
+    chk(tag);
+    if (depth >= 2) return;
+    const keys = [...new Set(ga('#view [data-nsub]').map(e => e.dataset.nsub))];
+    for (const key of keys) {
+      const grp = g(`#view [data-nsub="${key}"]`);
+      if (!grp) continue;
+      const vals = [...grp.querySelectorAll('button')].map(b => b.dataset.v);
+      for (const v of vals) {
+        const el = g(`#view [data-nsub="${key}"] [data-v="${v}"]`);
+        if (el) { el.click(); explore(tag + '/' + key + ':' + v, depth + 1); }
+      }
+    }
+  }
+  const secs = ga('[data-sec]').map(b => b.dataset.sec);
+  for (const sec of secs) {
+    const nb = g(`[data-sec="${sec}"]`); if (!nb) continue;
+    nb.click();
+    const subs = ga('#subnav button').map(b => b.dataset.sub);
+    const targets = subs.length ? subs : [''];
+    for (const sub of targets) {
+      if (sub) { const sb = g(`#subnav [data-sub="${sub}"]`); if (sb) sb.click(); }
+      explore(sec + (sub ? '/' + sub : ''), 0);
+    }
+  }
+  return { views, over, undef };
+}
+
+function probe(doc, w) {
+  const de = doc.documentElement;
+  const sw = de.scrollWidth, cw = de.clientWidth;
+  const r = walk(doc);
+  r.w = w; r.sw = sw; r.cw = cw; r.pageOver = sw > cw + 1;
+  return r;
+}
+
+const row = document.getElementById('row');
+const results = [];
+const jobs = [];
+SURFACES.forEach(surf => WIDTHS.forEach(w => jobs.push({ surf, w })));
+
+jobs.forEach(j => {
+  const cell = document.createElement('div'); cell.className = 'cell';
+  cell.innerHTML = `<div class="cap">检测中… ${j.surf} ${j.w}px</div>`;
+  const f = document.createElement('iframe');
+  f.width = j.w; f.height = 640; f.src = `../index.html?surface=${j.surf}`;
+  cell.appendChild(f); row.appendChild(cell);
+  new Promise(res => { f.onload = () => setTimeout(() => {
+    try { res(probe(f.contentDocument, j.w)); } catch (e) { res({ w: j.w, err: String(e).slice(0, 90) }); }
+  }, 900); }).then(r => {
+    r.surf = j.surf; results.push(r);
+    const bad = (r.pageOver || r.over.length || r.undef.length);
+    cell.querySelector('.cap').innerHTML = `<span class="${bad ? 'bad' : 'ok'}">${bad ? '✗ 溢出' : '✓ OK'}</span> ${j.surf} ${j.w}px · ${r.views || 0} 视图` +
+      (r.over.length ? ' · OVER: ' + r.over.slice(0, 4).join(', ') : '') + (r.undef.length ? ' · UNDEF: ' + r.undef.slice(0, 3).join(', ') : '');
+  });
+});
+
+(async () => {
+  for (let i = 0; i < 120 && results.length < jobs.length; i++) await new Promise(r => setTimeout(r, 300));
+  results.sort((a, b) => a.surf.localeCompare(b.surf) || a.w - b.w);
+  const badTotal = results.filter(r => r.pageOver || r.over.length || r.undef.length).length;
+  const lines = results.map(r => {
+    if (r.err) return `✗ ${r.surf} ${r.w}px  ERR ${r.err}`;
+    const bad = r.pageOver || r.over.length || r.undef.length;
+    return `${bad ? '✗' : '✓'} ${r.surf.padEnd(5)} ${String(r.w).padStart(4)}px  views=${r.views}  doc ${r.sw}/${r.cw}` +
+      (r.over.length ? `\n     OVER: ${r.over.join(', ')}` : '') +
+      (r.undef.length ? `\n     UNDEF: ${r.undef.join(', ')}` : '');
+  });
+  document.getElementById('out').textContent = lines.join('\n') + `\n\n总计: ${results.length - badTotal}/${results.length} 通过`;
+  document.title = badTotal ? ('OVERFLOW x' + badTotal) : 'ALL-CLEAR';
+})();
+</script>
+</body>
+</html>
