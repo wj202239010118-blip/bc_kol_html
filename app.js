@@ -2173,9 +2173,19 @@ function chatPane(p) {
   const fwdPanel = state.ui.forwardIdx != null ? `<div class="attach">${CH().people.map(x => `<button class="pill" data-fwd-pick="${esc(x.pid)}">${esc(x.name)}</button>`).join('')}</div>` : '';
   const mentionMenu = (state.ui.mention && members.length) ? `<div class="attach">${members.map(m => `<button class="pill" data-mention-pick="${esc(m)}">@${esc(m)}</button>`).join('')}</div>` : '';
   const searchRow = state.ui.searchOpen ? `<div class="tg-searchrow"><input class="input grow" data-chatq placeholder="会话内搜索…" value="${esc(state.ui.chatQ || '')}">${q ? `<span class="pill">${msgs.length} 条</span>` : ''}</div>` : '';
+  const _memRows = (p.memRaw && p.memRaw.length)
+    ? p.memRaw.map(function (mm) {
+        var nm = mm.name || mm.username || String(mm.id || '');
+        return '<div class="memrow"><span class="ava sm" data-av="tg:' + esc(String(mm.id || '')) + '">' + esc(String(nm)[0] || '?') + '</span>'
+          + '<div class="grow"><b>' + esc(nm) + '</b>' + (mm.admin ? ' <span class="pill accent">管理员</span>' : '') + (mm.bot ? ' <span class="pill">bot</span>' : '') + '</div>'
+          + (mm.bot ? '' : '<button class="btn sm ghost danger" data-mem-remove="' + esc(nm) + '">移除</button>') + '</div>';
+      }).join('')
+    : ((p.members || []).map(function (m, i) {
+        return '<div class="memrow"><span class="ava sm">' + esc(String(m)[0] || '?') + '</span><div class="grow"><b>' + esc(m) + '</b></div></div>';
+      }).join('') || '<div class="muted" style="padding:8px">成员名单加载中…</div>');
   const memPanel = (state.ui.members && isGroup) ? `<div class="members-panel">
-      <div class="spread"><span class="eyebrow">群成员 ${members.length}</span><button class="btn sm ghost" data-members-toggle>收起</button></div>
-      <div class="memlist">${members.map((m, i) => `<div class="memrow"><span class="ava sm">${esc(m[0])}</span><div class="grow"><b>${esc(m)}</b>${i === 0 ? ' <span class="pill accent">群主</span>' : ''}</div>${m === 'William' ? '<span class="pill">我</span>' : '<button class="btn sm ghost" data-mem-promote="' + esc(m) + '">管理员</button><button class="btn sm ghost danger" data-mem-remove="' + esc(m) + '">移除</button>'}</div>`).join('')}</div>
+      <div class="spread"><span class="eyebrow">群成员 ${p.memCount != null ? p.memCount : members.length}</span><button class="btn sm ghost" data-members-toggle>收起</button></div>
+      <div class="memlist">${_memRows}</div>
       <div class="row"><input class="input grow" data-mem-add placeholder="@用户名 或 UID"><button class="btn sm primary" data-mem-add-btn>拉入</button></div>
     </div>` : '';
   const ei = state.ui.editIdx;
