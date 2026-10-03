@@ -238,6 +238,34 @@
     }
   };
 
+  /* 2026-10-03: 消息台扩展 —— WA 会话 + 头像（TG dataURI / WA CDN url） */
+  API.chat.waGroups = function () {
+    return apiGet('/wa/groups', null, TIMEOUT_HEAVY).then(function (d) { return { ok: true, groups: (d && d.groups) || [] }; }).catch(function () { return { ok: false, groups: [] }; });
+  };
+  API.chat.waMessages = function () {
+    return apiGet('/wa/messages', null, TIMEOUT_HEAVY).then(function (d) { return { ok: true, messages: (d && d.messages) || [] }; }).catch(function () { return { ok: false, messages: [] }; });
+  };
+  API.chat.waReadChat = function (ref, limit) {
+    return apiGet('/wa/chat', { ref: String(ref), limit: String(limit || 80) }, TG_TIMEOUT);
+  };
+  var AV_MEM = Object.create(null);
+  API.avatar = function (kind, id) {
+    kind = String(kind || 'tg').toLowerCase(); id = String(id || '');
+    if (!id) return Promise.resolve('');
+    var mk = kind + ':' + id;
+    if (AV_MEM[mk]) return Promise.resolve(AV_MEM[mk]);
+    /* TG 头像是 dataURI（~100KB）→ 只进内存；WA 是 CDN url（短）→ 可进 localStorage */
+    if (kind === 'wa') { try { var c = localStorage.getItem('kol-waav:' + id); if (c) { AV_MEM[mk] = c; return Promise.resolve(c); } } catch (e) {} }
+    var q = (kind === 'wa') ? { jid: id } : { uid: id };
+    return apiGet('/' + (kind === 'wa' ? 'wa/avatar' : 'tg/avatar'), q, TIMEOUT_HEAVY)
+      .then(function (d) {
+        var u = (d && d.data) || '';
+        if (u) { AV_MEM[mk] = u; if (kind === 'wa') { try { localStorage.setItem('kol-waav:' + id, u); } catch (e) {} } }
+        return u;
+      })
+      .catch(function () { return ''; });
+  };
+
   /* 拿到就覆盖 MOCK；拿不到就保留 mock。fn 返回 undefined/null 视为「本 key 暂无真数据」。 */
   function put(key, fn) {
     return Promise.resolve()

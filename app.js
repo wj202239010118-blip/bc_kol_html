@@ -1809,6 +1809,15 @@ function loadChatMsgs(pid) {
   const p = c.people.find(x => String(x.pid) === String(pid)); if (!p) return;
   const acct = state.ui.thread || (p.threads[0] && p.threads[0].acct) || '';
   const th = p.threads.find(t => t.acct === acct) || p.threads[0]; if (!th) return;
+  /* 2026-10-03: WA 会话走 /wa/chat（ref=jid/gid），缓存用 'wa' 伪账号 */
+  if (p.plat === 'WA' && API.chat.waReadChat) {
+    const cw = API.chat.cacheGet('wa', pid);
+    if (cw && cw.messages && cw.messages.length) { applyChatMsgs(th, cw.messages); render(); }
+    API.chat.waReadChat(pid, 60).then(function (r) {
+      if (r && r.ok && Array.isArray(r.messages)) { const rec = API.chat.cacheMerge('wa', pid, r.messages); applyChatMsgs(th, rec.messages); render(); }
+    }).catch(function () {});
+    return;
+  }
   const cached = API.chat.cacheGet(acct, pid);
   if (cached && cached.messages && cached.messages.length) { applyChatMsgs(th, cached.messages); render(); }
   API.chat.readChat(acct, pid, 50).then(function (r) {
@@ -1822,14 +1831,77 @@ function loadChatDialogs() {
   if (!(window.API && API.chat) || state.ui._chatLoaded || state.ui._chatLoading) return;
   state.ui._chatLoading = true;
   /* ⚠️ 2026-10-02 修：原来从 M.chat.accounts（**演示用的假账号名**，含已冻结的 userbot）
-   * 取 acct 逐个要 → 拼出来只剩 5 条。改为【不传 acct】→ 网关给全量（实测 153 条）。*/
-  API.chat.dialogs([]).then(function (r) {
-    if (r && r.people && r.people.length) {
-      M.chats = Object.assign({}, M.chat, { people: r.people });
-      state.ui._chatLoaded = true;
-    }
+   * 取 acct 逐个要 → 拼出来只剩 5 条。改为【不传 acct】→ 网关给全量（实测 153 条）。
+   * 2026-10-03: 并入 WA —— /wa/groups（群）+ /wa/messages（私聊 jid 聚合），plat:'WA'。*/
+  var tgP = API.chat.dialogs([]).then(function (r) { return (r && r.people) || []; }).catch(function () { return []; });
+  var waP = (API.chat.waGroups && API.chat.waMessages)
+    ? Promise.all([API.chat.waGroups(), API.chat.waMessages()]).then(function (rr) {
+        var groups = (rr[0] && rr[0].groups) || [];
+        var msgs = (rr[1] && rr[1].messages) || [];
+        var byJid = {};
+        msgs.forEach(function (m) { if (m.jid && !byJid[m.jid]) byJid[m.jid] = m; });
+        var out = [];
+        groups.forEach(function (g) {
+          if (!g || !g.jid) return;
+          out.push({ pid: g.jid, name: g.name || g.gid || g.jid, plat: 'WA', kind: 'group',
+                     threads: [{ acct: 'wa', ts: '', unread: 0, msgs: [] }] });
+          delete byJid[g.jid];
+        });
+        Object.keys(byJid).forEach(function (jid) {
+          if (/@g\.us$/.test(jid)) return;
+          var m = byJid[jid];
+          out.push({ pid: jid, name: (m && m.name) || jid.split('@')[0], plat: 'WA', kind: 'user',
+                     threads: [{ acct: 'wa', ts: (m && m.ts) || '', unread: 0, msgs: [] }] });
+        });
+        return out;
+      }).catch(function () { return []; })
+    : Promise.resolve([]);
+  Promise.all([tgP, waP]).then(function (parts) {
+    var people = (parts[0] || []).concat(parts[1] || []);
+    if (people.length) { M.chats = Object.assign({}, M.chat, { people: people }); state.ui._chatLoaded = true; }
     state.ui._chatLoading = false; render();
   }).catch(function () { state.ui._chatLoading = false; });
+}
+/* 2026-10-03: 渲染后懒加载头像（TG dataURI / WA CDN url）；失败静默回落首字母。
+ * 只排队"大致可见"的（列表可滚动，152 条不必要全拉）+ 并发 4（后端单线程 worker 会被打爆）。 */
+var _avQ = [], _avBusy = 0;
+function _avPump() {
+  while (_avBusy < 4 && _avQ.length) {
+    var el = _avQ.shift();
+    if (!el.isConnected || el.dataset.avDone) continue;
+    el.dataset.avDone = '1';
+    var spec = el.getAttribute('data-av') || '';
+    var ix = spec.indexOf(':');
+    if (ix < 0) continue;
+    _avBusy++;
+    (function (el, kind, id) {
+      API.avatar(kind, id).then(function (u) {
+        if (u && el.isConnected) {
+          var im = document.createElement('img');
+          im.src = u; im.alt = '';
+          im.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:inherit';
+          el.innerHTML = ''; el.appendChild(im);
+        }
+      }).catch(function () {}).then(function () { _avBusy--; _avPump(); });
+    })(el, spec.slice(0, ix), spec.slice(ix + 1));
+  }
+}
+function fillAvatars() {
+  if (!(window.API && API.avatar)) return;
+  if (!state.ui._avScrollBound) {
+    state.ui._avScrollBound = true;
+    try { document.addEventListener('scroll', function () { setTimeout(fillAvatars, 120); }, true); } catch (e) {}
+  }
+  var els = document.querySelectorAll('[data-av]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    if (el.dataset.avQueued || el.dataset.avDone) continue;
+    var r = el.getBoundingClientRect();
+    if (r.bottom < -200 || r.top > (window.innerHeight + 200)) continue;   /* 视口外先不拉 */
+    el.dataset.avQueued = '1';
+    _avQ.push(el);
+  }
+  _avPump();
 }
 /* 2026-10-03(用户): 去掉消息页顶部「合作通知」卡片（丑且占空间）—— 合作通知改由「合作通知」子 tab 展示 */
 function pinnedSet() {
@@ -1844,8 +1916,9 @@ function personRow(p) {
   const lt = latestThread(p) || {};
   const last = (lt.msgs && lt.msgs.length) ? lt.msgs[lt.msgs.length - 1].t : '';
   const u = personUnread(p);
+  const _avk = (p.plat === 'WA' ? 'wa:' : 'tg:') + p.pid;
   return `<button class="convo ${on ? 'on' : ''}" data-person="${esc(p.pid)}">
-    <span class="ava ${p.plat === 'WA' ? 'wa' : ''}">${esc(p.name[0])}</span>
+    <span class="ava ${p.plat === 'WA' ? 'wa' : ''}" data-av="${esc(_avk)}">${esc(p.name[0])}</span>
     <span class="cgrow">
       <span class="row" style="justify-content:space-between"><b class="trunc">${esc(p.name)}</b><span class="dim">${esc(lt.ts || '')}</span></span>
       <span class="row" style="justify-content:space-between"><span class="muted trunc">${esc(last)}</span>${u ? `<span class="count">${u}</span>` : ''}</span>
@@ -1861,7 +1934,7 @@ function chatPane(p) {
   const bubbles = msgs.length ? msgs.map(m => `<div class="bub ${m.d === 'out' ? 'out' : 'in'}">${m.who ? `<span class="who">${esc(m.who)}</span>` : ''}<div class="t">${esc(m.t)}</div><span class="ts">${esc(m.ts)}</span></div>`).join('') : '<div class="empty" style="margin:auto"><p>暂无消息</p></div>';
   return `<header class="tg-chat-head">
       <button class="btn icon ghost nw" data-back aria-label="返回">${I.arrow}</button>
-      <span class="ava ${p.plat === 'WA' ? 'wa' : ''}">${esc(p.name[0])}</span>
+      <span class="ava ${p.plat === 'WA' ? 'wa' : ''}" data-av="${esc((p.plat === 'WA' ? 'wa:' : 'tg:') + p.pid)}">${esc(p.name[0])}</span>
       <div class="grow" style="text-align:left"><b class="trunc">${esc(p.name)}</b><div class="dim">${esc(thread.acct ? acctLabel(thread.acct) : '')} · ${esc(p.plat)}${p.stage ? ' · ' + esc(p.stage) : ''}</div></div>
       <button class="btn sm" data-quote-uid="${esc(p.pid)}">报价</button><button class="btn sm" data-reg-uid="${esc(p.pid)}" data-reg-name="${esc(p.name)}">登记</button>
     </header>
@@ -1902,6 +1975,7 @@ function msgsScreen() {
   }).join('');
   /* 2026-10-02: WA/TG 统一显示 —— 去掉 WA 专属统计卡（两端只留会话列表） */
   const person = c.people.find(p => p.pid === state.ui.person);
+  setTimeout(fillAvatars, 40);   /* 2026-10-03: 渲染后懒加载头像 */
   return `<div class="tg" data-pane="${person ? 'chat' : 'list'}">
     <section class="tg-list">
       <div class="tg-list-head">
