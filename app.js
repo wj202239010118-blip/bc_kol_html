@@ -2146,6 +2146,18 @@ function msgHtml(m, idx) {
 }
 /* 2026-10-03: 会话目标语言（发送时翻译用）。默认 en；名字带国旗/国家码 → es。
  * 可用 localStorage['kol-lang-map'] = {"<pid>":"es"} 覆盖（后续可加 UI 选择器）。 */
+/* 2026-10-03(GPT 建议): 译文与原文的【关键 token】程序化比对 —— 不只靠 prompt。
+ * @提及/链接/数字 有增删 → 返回不一致项（调用方拦下，不发）。 */
+function trGuard(src, out) {
+  const dig = (s) => (String(s).match(/\d+/g) || []).sort().join(',');
+  const men = (s) => (String(s).match(/@[A-Za-z0-9_]+/g) || []).map(function (x) { return x.toLowerCase(); }).sort().join(',');
+  const url = (s) => (String(s).match(/https?:\/\/[^\s]+/g) || []).sort().join(',');
+  const bad = [];
+  if (men(src) !== men(out)) bad.push('@提及');
+  if (url(src) !== url(out)) bad.push('链接');
+  if (dig(src) !== dig(out)) bad.push('数字');
+  return bad;
+}
 function targetLangFor(p) {
   try { const m = JSON.parse(localStorage.getItem('kol-lang-map') || '{}'); if (m[p.pid]) return String(m[p.pid]).toLowerCase(); } catch (e) {}
   const n = String((p && p.name) || '');
@@ -2170,10 +2182,11 @@ function sendMsg(text, media) {
   if (!(window.API && API.w) || !chat_id || /^wa/i.test(acct)) { _pushLocal(); return; }   /* WA/无 API → 本地 */
   /* 2026-10-03(用户): 外发【禁中文】硬闸 + 发送时翻译。
      含中文 → 先译成目标语言；译文仍含中文 / 翻译不可用 → 直接拦下（绝不发中文）。 */
+  const _acctLabel = acct || '(默认账号)';
   const _emit = (outText, orig) => {
     state.ui.confirm = {
       title: orig ? ('确认发送（已译 ' + targetLangFor(p).toUpperCase() + '）') : '确认发送',
-      body: '将通过「' + acct + '」向 ' + (p.name || chat_id) + ' 发送（TG 真实发送 · 单条）：\n'
+      body: '将通过「' + _acctLabel + '」向 ' + (p.name || chat_id) + ' 发送（TG 真实发送 · 单条）：\n'
             + (orig ? ('原文：' + String(orig).slice(0, 120) + '\n译文：') : '') + String(outText).slice(0, 200),
       ok: () => {
         _pushLocal(outText); render();
@@ -2191,6 +2204,8 @@ function sendMsg(text, media) {
     API.w.translate(String(text), _to).then(function (r) {
       const tr = (r && r.ok && r.text) ? String(r.text) : '';
       if (!tr || /[\u4e00-\u9fff]/.test(tr)) { toast('翻译失败 / 译文仍含中文 → 已拦下，不发送'); render(); return; }
+      const _bad = trGuard(text, tr);
+      if (_bad.length) { toast('译文与原文不一致（' + _bad.join('/') + '）→ 已拦下，请人工核对'); render(); return; }
       _emit(tr, text);
     }).catch(function () { toast('翻译失败 → 已拦下，不发送'); render(); });
     return;
