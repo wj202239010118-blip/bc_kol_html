@@ -1816,18 +1816,22 @@ function loadChatMsgs(pid) {
     const cw = API.chat.cacheGet('wa', pid);
     if (cw && cw.messages && cw.messages.length) { applyChatMsgs(th, cw.messages); render(); }
     API.chat.waReadChat(pid, 60).then(function (r) {
-      if (r && r.ok && Array.isArray(r.messages)) { const rec = API.chat.cacheMerge('wa', pid, r.messages); applyChatMsgs(th, rec.messages); render(); }
-    }).catch(function () {});
+      if (r && r.ok && Array.isArray(r.messages)) { state.ui._chatErr = null; const rec = API.chat.cacheMerge('wa', pid, r.messages); applyChatMsgs(th, rec.messages); render(); }
+      else { state.ui._chatErr = (r && (r.error || r.err)) || '读 WA 会话失败'; render(); }
+    }).catch(function (e) { state.ui._chatErr = String((e && e.message) || e).slice(0, 80); render(); });
     return;
   }
   const cached = API.chat.cacheGet(acct, pid);
   if (cached && cached.messages && cached.messages.length) { applyChatMsgs(th, cached.messages); render(); }
   API.chat.readChat(acct, pid, 50).then(function (r) {
     if (r && r.ok && Array.isArray(r.messages)) {
+      state.ui._chatErr = null;
       const rec = API.chat.cacheMerge(acct, pid, r.messages);
       applyChatMsgs(th, rec.messages); render();
+    } else {
+      state.ui._chatErr = (r && (r.error || r.err)) || '读会话失败'; render();   /* 区分“真没消息”与“读失败” */
     }
-  }).catch(function () {});
+  }).catch(function (e) { state.ui._chatErr = String((e && e.message) || e).slice(0, 80); render(); });
 }
 function loadChatDialogs() {
   if (!(window.API && API.chat) || state.ui._chatLoaded || state.ui._chatLoading) return;
@@ -2109,7 +2113,9 @@ function renderMsgs(msgs, unread) {
     if (i === startNew) out += `<div class="unread-sep">未读消息</div>`;
     out += msgHtml(m, m._oi != null ? m._oi : i);
   });
-  return out || '<div class="empty" style="margin:auto"><p>暂无消息</p></div>';
+  return out || (state.ui._chatErr
+    ? `<div class="empty" style="margin:auto"><p>读取失败：${esc(String(state.ui._chatErr).slice(0, 80))}</p><p class="muted" style="font-size:var(--fs-xs)">点左侧会话重试</p></div>`
+    : '<div class="empty" style="margin:auto"><p>暂无消息</p></div>');
 }
 function msgHtml(m, idx) {
   const time = String(m.ts || '').split(' ').pop();
