@@ -173,6 +173,31 @@
     dealSync:     function (b)           { return apiPost('/cs-sheet-deal-sync', b); },   /* {uid,name,account,platform,coop_stage,collect} */
     translate:    function (text, to)    { return apiPost('/translate', { text: String(text || ''), to: String(to || 'en') }, { timeout: 60000 }); }
   };
+  /* 2026-10-03: 翻译优先走【浏览器自带 on-device 翻译】(Chrome 138+ Translator API)——
+     文本不出本机、不占服务端；不可用才回落服务端 /translate（本机 CLI/deepseek/gemini）。
+     → 同事各自用自己的浏览器翻译，不消耗主人的 key，也不需要任何 scope。 */
+  function _browserTranslate(text, to) {
+    return new Promise(function (resolve) {
+      try {
+        var T = (typeof self !== 'undefined' && self.Translator) ? self.Translator : null;
+        if (!T || typeof T.create !== 'function') return resolve(null);
+        var req = { sourceLanguage: 'zh', targetLanguage: String(to || 'en') };
+        /* 注意：Chrome 要求【用户手势】才能首次下载模型 → 不能先 await availability()
+           （await 会丢掉手势）→ 直接 create()，让它在"点发送"那个手势里跑。
+           首次会触发模型下载（~100MB，几十秒）；失败/不支持 → resolve(null) 回落服务端链路。 */
+        T.create(req).then(function (tr) {
+          return tr.translate(String(text)).then(function (out) { resolve(String(out || '').trim() || null); });
+        }).catch(function () { resolve(null); });
+      } catch (e) { resolve(null); }
+    });
+  }
+  var _serverTranslate = API.w.translate;
+  API.w.translate = function (text, to) {
+    return _browserTranslate(text, to).then(function (out) {
+      if (out) return { ok: true, text: out, via: 'browser' };
+      return _serverTranslate(text, to);
+    });
+  };
 
   /* ── 聊天数据层（2026-10-02）：真实会话/消息 + 本地缓存 ─────────────────
    * 读走网关 GET /tg/*（worker=smart-cs 8788）：/dialogs 列会话、/read-chat 读单聊。
