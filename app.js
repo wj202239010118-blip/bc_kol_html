@@ -1860,6 +1860,10 @@ function loadChatDialogs() {
   Promise.all([tgP, waP]).then(function (parts) {
     var people = (parts[0] || []).concat(parts[1] || []);
     if (people.length) { M.chats = Object.assign({}, M.chat, { people: people }); state.ui._chatLoaded = true; }
+    /* 2026-10-03: 运营›群组与拉群 的群列表也用真实 TG 群 + 真实人数（来自 /dialogs 的 participants_count） */
+    var gl = people.filter(function (x) { return x.kind === 'group' && x.plat === 'TG'; })
+      .map(function (x) { return { title: x.name, members: x.memCount || 0, platform: 'TG', pinned: false }; });
+    if (gl.length) state.ui.groupList = gl;
     state.ui._chatLoading = false; render();
   }).catch(function () { state.ui._chatLoading = false; });
 }
