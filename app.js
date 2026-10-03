@@ -1864,6 +1864,7 @@ function loadChatDialogs() {
     var gl = people.filter(function (x) { return x.kind === 'group' && x.plat === 'TG'; })
       .map(function (x) { return { title: x.name, members: x.memCount || 0, platform: 'TG', pinned: false }; });
     if (gl.length) state.ui.groupList = gl;
+    preheatChat(people);   /* 2026-10-03: 后台预热最近会话的消息+头像 */
     state.ui._chatLoading = false; render();
   }).catch(function () { state.ui._chatLoading = false; });
 }
@@ -1884,6 +1885,29 @@ function loadGroupMembers(p) {
       render();
     }
   }).catch(function () { p._memLoading = false; });
+}
+/* 2026-10-03: 预热（学 TG/微信）—— 列表先铺预览，后台低并发把【最近会话】的消息+头像灌进缓存，
+ * 点开即显。成员 1000+ 的群不预热（会 FloodWait），仍按可见懒加载。 */
+function preheatChat(people) {
+  if (!(window.API && API.chat)) return;
+  var list = (people || []).slice(0, 24);
+  var ai = 0;
+  (function pumpAv() {
+    if (ai >= list.length) return;
+    var p = list[ai++];
+    API.avatar(p.plat === 'WA' ? 'wa' : 'tg', p.pid).catch(function () {})
+      .then(function () { setTimeout(pumpAv, 220); });
+  })();
+  var mi = 0;
+  (function pumpMsg() {
+    if (mi >= list.length) return;
+    var p = list[mi++];
+    var acct = (p.threads[0] && p.threads[0].acct) || '';
+    var get = (p.plat === 'WA' && API.chat.waReadChat) ? API.chat.waReadChat(p.pid, 30) : API.chat.readChat(acct, p.pid, 30);
+    get.then(function (r) {
+      if (r && r.ok && Array.isArray(r.messages)) API.chat.cacheMerge(p.plat === 'WA' ? 'wa' : acct, p.pid, r.messages);
+    }).catch(function () {}).then(function () { setTimeout(pumpMsg, 1100); });
+  })();
 }
 var _avQ = [], _avBusy = 0;
 function _avPump() {
@@ -1935,7 +1959,7 @@ function latestThread(p) { return p.threads.slice().sort((a, b) => (String(a.ts)
 function personRow(p) {
   const on = state.ui.person === p.pid;
   const lt = latestThread(p) || {};
-  const last = (lt.msgs && lt.msgs.length) ? lt.msgs[lt.msgs.length - 1].t : '';
+  const last = (lt.msgs && lt.msgs.length) ? lt.msgs[lt.msgs.length - 1].t : (p.last || '');
   const u = personUnread(p);
   const _avk = (p.plat === 'WA' ? 'wa:' : 'tg:') + p.pid;
   return `<button class="convo ${on ? 'on' : ''}" data-person="${esc(p.pid)}">

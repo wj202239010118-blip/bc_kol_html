@@ -203,7 +203,8 @@
               var typ = String(d.type || d.kind || d.entity_type || '');
               e = byPid[pid] = { pid: pid, name: String(d.title || d.name || d.username || pid), plat: 'TG',
                                  kind: (/group|channel|super/i.test(typ) || d.is_group) ? 'group' : 'user',
-                                 memCount: Number(d.members || 0) || 0, threads: [] };
+                                 memCount: Number(d.members || 0) || 0,
+                                 last: String(d.last_text || ''), threads: [] };   /* last: 列表预览（/dialogs 自带，零成本） */
             }
             e.threads.push({ acct: pt.acct, ts: String(d.ts || d.last_ts || d.date || ''), unread: Number(d.unread || 0) || 0, msgs: [] });
           });
