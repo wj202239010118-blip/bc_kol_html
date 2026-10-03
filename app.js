@@ -1831,13 +1831,7 @@ function loadChatDialogs() {
     state.ui._chatLoading = false; render();
   }).catch(function () { state.ui._chatLoading = false; });
 }
-/* 2026-10-02: 合作通知(/notify-feed→MOCK.notif) + 置顶(/cs-monitor→MOCK.pins) */
-function notifyBlock() {
-  const n = (window.MOCK && MOCK.notif) || null;
-  if (!n || !n.count) return '';
-  const items = (n.items || []).slice(0, 4).map(x => `<div class="rowitem"><div class="grow"><b style="font-weight:600">${esc(x.who || '')}</b><div class="muted trunc" style="font-size:var(--fs-xs)">${esc(x.text || '')}</div></div><span class="muted" style="font-size:var(--fs-xs)">${esc(x.when || '')}</span></div>`).join('');
-  return `<div class="card pad" style="margin:10px 12px 0"><div class="spread"><span class="section-title" style="font-size:var(--fs-sm)">合作通知</span><span class="row"><span class="pill ${/待处理/.test(n.title || '') ? 'bad' : 'warn'}">${esc(n.title || '')}</span><span class="pill">${n.count != null ? n.count : 0} 条</span></span></div><div class="rows" style="border:1px solid var(--line);border-radius:var(--r);margin-top:8px">${items}</div></div>`;
-}
+/* 2026-10-03(用户): 去掉消息页顶部「合作通知」卡片（丑且占空间）—— 合作通知改由「合作通知」子 tab 展示 */
 function pinnedSet() {
   const s = {};
   ((window.MOCK && MOCK.pins) || []).forEach(function (p) { if (p.id != null) s[String(p.id)] = 1; if (p.name) s['n:' + String(p.name)] = 1; });
@@ -1915,7 +1909,6 @@ function msgsScreen() {
         <div class="chips">${plats}</div>
         <div class="folders">${folders}</div>
       </div>
-      ${kind === 'coop' ? '' : notifyBlock()}
       <div class="tg-convos">${list}</div>
     </section>
     <section class="tg-chat">${person ? chatPane(person) : '<div class="empty" style="margin:auto"><h4>选择一个会话</h4><p>同一网红的多个账号会话已合并，点开可切账号子标签</p></div>'}</section>
