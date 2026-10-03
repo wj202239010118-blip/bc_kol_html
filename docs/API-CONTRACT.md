@@ -152,6 +152,14 @@ AUTH.api = {
 - 会话：建议 `HttpOnly` Cookie 或短期 token；前端不落长期凭据。
 - 绝不下发/不存储：明文口令、盐、哈希、恢复码、私钥、长期 token（→ `SECURITY.md`）。
 
+### 7.1 登录态常驻（2026-10-03 用户要求）
+
+- **登录后刷新/重开页面不得回登录页**；只有用户点「退出登录」/「清空本机账号」才失效。
+- 现状：登录态在 `localStorage`（口令登录 `kol-auth-v1`.session；密钥登录 `kol-key`+`kol-role`），**无 TTL、无自动登出**；`AUTH.logged()` 判定；`app.js` boot 走 `AUTH.gate(start)`，已登录则直接 `start()`。
+- **不得**在任何流程（含测试/调试收尾）里清这三个键；agent/脚本同样不得代用户登出。测试要登录请用独立窗口/profile。
+- ⚠️ `localStorage` 按 **origin** 隔离：公网入口（`https://kol-ext-gateway...workers.dev`）与 `http://127.0.0.1:8091` 是**两套登录态**（跨源不共享，非 bug）——固定一个入口。
+- 静态资源由 `ext_entry._static` / `serve.py` 发 `Cache-Control: no-store` → 刷新必拿新代码。
+
 ## 8. 交接清单（后端 TODO）
 
 1. 把第 6.1 的端点从 GET 改成 POST（带副作用的不该能被 GET 触发）。
