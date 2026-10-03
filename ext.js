@@ -154,7 +154,8 @@
   var WRITE_OP_BY_PATH = {
     '/notes-sync': 'notes-sync', '/report-parse': 'report-parse', '/report-ledger': 'report-ledger', '/withdraw-step': 'withdraw-step',
     '/tg-send': 'tg-send', '/group-members': 'group-members', '/create-group': 'create-group',
-    '/quote/analyze-chat': 'quote-analyze', '/cs-sheet-deal-sync': 'deal-sync'
+    '/quote/analyze-chat': 'quote-analyze', '/cs-sheet-deal-sync': 'deal-sync',
+    '/translate': 'translate'
   };
   function post(path, body, opts) {
     var op = (opts && opts.op) || WRITE_OP_BY_PATH[path] || null;

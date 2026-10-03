@@ -1144,7 +1144,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#cmdkBtn')) { openCmd(); return; }
   if (e.target.closest('[data-back]')) { state.ui.person = null; state.ui.thread = null; state.ui.convo = null; state.ui.searchOpen = false; state.ui.selectMode = false; render(); return; }
   const qk = e.target.closest('[data-qk]'); if (qk) { const i = $('#view [data-csend]'); if (i) i.value = qk.dataset.qk; return; }
-  const csb = e.target.closest('[data-csend-btn]'); if (csb) { const i = $('#view [data-csend]'); const v = i ? i.value.trim() : ''; toast(v ? '已发送' : '请输入内容'); return; }
+  /* 2026-10-03: 此处原有“假发送”toast（与真发送监听器重复触发，用户看到两次反馈）—— 已删，只留真发送 */
   const ss = e.target.closest('[data-ss]');
   if (ss) { const k = ss.dataset.ss; state.ui.streamOpen = (state.ui.streamOpen === k) ? null : k; render(); return; }
   const rep = e.target.closest('[data-reply]');
@@ -2144,14 +2144,22 @@ function msgHtml(m, idx) {
       <button data-mact="delete" data-idx="${idx}" title="删除">${MI.del}</button>
     </div></div>`;
 }
+/* 2026-10-03: 会话目标语言（发送时翻译用）。默认 en；名字带国旗/国家码 → es。
+ * 可用 localStorage['kol-lang-map'] = {"<pid>":"es"} 覆盖（后续可加 UI 选择器）。 */
+function targetLangFor(p) {
+  try { const m = JSON.parse(localStorage.getItem('kol-lang-map') || '{}'); if (m[p.pid]) return String(m[p.pid]).toLowerCase(); } catch (e) {}
+  const n = String((p && p.name) || '');
+  if (/[\u{1F1E6}-\u{1F1FF}]/u.test(n)) return 'es';
+  return 'en';
+}
 function sendMsg(text, media) {
   const c = CH(); const p = c.people.find(x => x.pid === state.ui.person); if (!p) return;
   const th = p.threads.find(x => x.acct === (state.ui.thread || (p.threads[0] && p.threads[0].acct))); if (!th) return;
   th.msgs = th.msgs || [];
   const ei = state.ui.editIdx;
   if (ei != null && th.msgs[ei]) { th.msgs[ei].t = text; th.msgs[ei].edited = true; state.ui.editIdx = null; th.ts = '刚刚'; return; }
-  const _pushLocal = () => {
-    const m = { d: 'out', t: text, ts: '刚刚', status: 'sent' };
+  const _pushLocal = (out) => {
+    const m = { d: 'out', t: (out == null ? text : out), ts: '刚刚', status: 'sent' };
     if (media) { m.media = media; if (media === 'voice') m.dur = 6 + Math.floor(Math.random() * 40); }
     const ri = state.ui.replyTo;
     if (ri != null && th.msgs[ri]) { const s = th.msgs[ri]; m.reply = { who: s.d === 'out' ? '我' : (s.who || p.name), t: String(s.t || '').slice(0, 28) }; }
@@ -2160,17 +2168,34 @@ function sendMsg(text, media) {
   const acct = String(th.acct || '');
   const chat_id = String(p.pid || '');
   if (!(window.API && API.w) || !chat_id || /^wa/i.test(acct)) { _pushLocal(); return; }   /* WA/无 API → 本地 */
-  state.ui.confirm = {
-    title: '确认发送',
-    body: '将通过「' + acct + '」向 ' + (p.name || chat_id) + ' 发送（TG 真实发送 · 单条）：\n' + String(text).slice(0, 140),
-    ok: () => {
-      _pushLocal(); render();
-      API.w.tgSend({ acct: acct, chat_id: chat_id, text: text }).then(function (r) {
-        if (r && r.ok === false) toast('发送失败：' + (r.err || r.error || r.code || ''));
-      });
-    },
+  /* 2026-10-03(用户): 外发【禁中文】硬闸 + 发送时翻译。
+     含中文 → 先译成目标语言；译文仍含中文 / 翻译不可用 → 直接拦下（绝不发中文）。 */
+  const _emit = (outText, orig) => {
+    state.ui.confirm = {
+      title: orig ? ('确认发送（已译 ' + targetLangFor(p).toUpperCase() + '）') : '确认发送',
+      body: '将通过「' + acct + '」向 ' + (p.name || chat_id) + ' 发送（TG 真实发送 · 单条）：\n'
+            + (orig ? ('原文：' + String(orig).slice(0, 120) + '\n译文：') : '') + String(outText).slice(0, 200),
+      ok: () => {
+        _pushLocal(outText); render();
+        API.w.tgSend({ acct: acct, chat_id: chat_id, text: outText }).then(function (r) {
+          if (r && r.ok === false) toast('发送失败：' + (r.err || r.error || r.code || ''));
+        });
+      },
+    };
+    renderSheet();
   };
-  renderSheet();
+  if (/[\u4e00-\u9fff]/.test(String(text || ''))) {
+    if (!API.w.translate) { toast('含中文，且翻译接口不可用 → 已拦下（外发禁中文）'); return; }
+    const _to = targetLangFor(p);
+    toast('检测到中文 → 翻译成 ' + _to.toUpperCase() + '…');
+    API.w.translate(String(text), _to).then(function (r) {
+      const tr = (r && r.ok && r.text) ? String(r.text) : '';
+      if (!tr || /[\u4e00-\u9fff]/.test(tr)) { toast('翻译失败 / 译文仍含中文 → 已拦下，不发送'); render(); return; }
+      _emit(tr, text);
+    }).catch(function () { toast('翻译失败 → 已拦下，不发送'); render(); });
+    return;
+  }
+  _emit(text, null);
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-select-toggle]')) { state.ui.selectMode = !state.ui.selectMode; state.ui.selMsgs = {}; render(); return; }

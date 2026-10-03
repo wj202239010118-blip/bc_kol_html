@@ -170,7 +170,8 @@
     withdrawStep: function (id, state, extra) { return apiPost('/withdraw-step', Object.assign({ id: id, state: state }, extra || {})); },
     /* 2026-10-03: 报价分析（读会话→出报价，分钟级 → 长超时）+ 登记（写合作总表，按 UID upsert） */
     quoteAnalyze: function (chat, jobId) { return apiPost('/quote/analyze-chat', { chat: String(chat || ''), job_id: jobId || ('q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)) }, { timeout: QUOTE_TIMEOUT }); },
-    dealSync:     function (b)           { return apiPost('/cs-sheet-deal-sync', b); }   /* {uid,name,account,platform,coop_stage,collect} */
+    dealSync:     function (b)           { return apiPost('/cs-sheet-deal-sync', b); },   /* {uid,name,account,platform,coop_stage,collect} */
+    translate:    function (text, to)    { return apiPost('/translate', { text: String(text || ''), to: String(to || 'en') }, { timeout: 60000 }); }
   };
 
   /* ── 聊天数据层（2026-10-02）：真实会话/消息 + 本地缓存 ─────────────────
