@@ -1308,6 +1308,7 @@ document.addEventListener('click', e => {
   if (t.closest('[data-net-prog-toggle]')) { state.ui.netProg = state.ui.netProg === false; render(); return; }
   if (t.closest('[data-quote-refresh]')) { toast('报价历史已刷新'); return; }
   const qp = t.closest('[data-quote-uid]'); if (qp) { runQuoteAnalyze(qp.dataset.quoteUid); return; }
+  if (t.closest('[data-enable-tr]')) { enableLocalTranslate(); return; }
   const rp = t.closest('[data-reg-uid]'); if (rp) { registerPerson(rp.dataset.regUid, rp.dataset.regName); return; }
   if (t.closest('[data-q-legend-toggle]')) { state.ui.qLegend = state.ui.qLegend === false; render(); return; }
   if (t.closest('[data-quote-copy-title]')) { const s = M.quote.sample; copyText(s.channel + ' · 档位 ' + s.tier + ' · ' + s.range + '/场'); return; }
@@ -1981,7 +1982,7 @@ function chatPane(p) {
       <button class="btn icon ghost nw" data-back aria-label="返回">${I.arrow}</button>
       <span class="ava ${p.plat === 'WA' ? 'wa' : ''}" data-av="${esc((p.plat === 'WA' ? 'wa:' : 'tg:') + p.pid)}">${esc(p.name[0])}</span>
       <div class="grow" style="text-align:left"><b class="trunc">${esc(p.name)}</b><div class="dim">${esc(thread.acct ? acctLabel(thread.acct) : '')} · ${esc(p.plat)}${p.stage ? ' · ' + esc(p.stage) : ''}</div></div>
-      <button class="btn sm" data-quote-uid="${esc(p.pid)}">报价</button><button class="btn sm" data-reg-uid="${esc(p.pid)}" data-reg-name="${esc(p.name)}">登记</button>
+      <button class="btn sm" data-quote-uid="${esc(p.pid)}">报价</button><button class="btn sm" data-reg-uid="${esc(p.pid)}" data-reg-name="${esc(p.name)}">登记</button><button class="btn sm" data-enable-tr title="启用本机翻译（首次需下载语言包）">🌐</button>
     </header>
     <div class="tg-subtabs">${subtabs}</div>
     <div class="tg-msgs">${bubbles}</div>
@@ -2144,6 +2145,27 @@ function msgHtml(m, idx) {
       <button data-mact="delete" data-idx="${idx}" title="删除">${MI.del}</button>
     </div></div>`;
 }
+/* 2026-10-03: 一键预热【浏览器本机翻译】—— Chrome 需用户手势才能下载语言包，
+ * 点这个按钮后 es/en 两个包就下好了，之后发送直接本机翻（不出机器）。 */
+function enableLocalTranslate() {
+  try {
+    if (!(self.Translator && self.Translator.create)) { toast('此浏览器不支持本机翻译（需 Chrome 138+）'); return; }
+    ['es', 'en'].forEach(function (to) {
+      try {
+        self.Translator.create({
+          sourceLanguage: 'zh', targetLanguage: to,
+          monitor: function (m) {
+            if (!m || !m.addEventListener) return;
+            m.addEventListener('downloadprogress', function (ev) {
+              toast('本机翻译 ' + to + ' 下载中 ' + Math.round((ev.loaded || 0) * 100) + '%');
+            });
+          }
+        }).then(function () { toast('本机翻译 ' + to.toUpperCase() + ' 已就绪 ✅'); })
+          .catch(function (e) { toast('本机翻译 ' + to + ' 失败：' + String((e && e.message) || e).slice(0, 60)); });
+      } catch (e) { toast('本机翻译 ' + to + ' 启动失败'); }
+    });
+  } catch (e) { toast('启用失败：' + String((e && e.message) || e).slice(0, 60)); }
+}
 /* 2026-10-03: 会话目标语言（发送时翻译用）。默认 en；名字带国旗/国家码 → es。
  * 可用 localStorage['kol-lang-map'] = {"<pid>":"es"} 覆盖（后续可加 UI 选择器）。 */
 /* 2026-10-03(GPT 建议): 译文与原文的【关键 token】程序化比对 —— 不只靠 prompt。
@@ -2177,6 +2199,8 @@ function sendMsg(text, media) {
     if (ri != null && th.msgs[ri]) { const s = th.msgs[ri]; m.reply = { who: s.d === 'out' ? '我' : (s.who || p.name), t: String(s.t || '').slice(0, 28) }; }
     th.msgs.push(m); th.ts = '刚刚'; th.unread = 0; state.ui.replyTo = null;
   };
+  if (state.ui._sending) { toast('上一条还在处理中，请稍候'); return; }   /* 防重复发送 */
+  const _draft0 = String(text || '');
   const acct = String(th.acct || '');
   const chat_id = String(p.pid || '');
   if (!(window.API && API.w) || !chat_id || /^wa/i.test(acct)) { _pushLocal(); return; }   /* WA/无 API → 本地 */
@@ -2200,14 +2224,19 @@ function sendMsg(text, media) {
   if (/[\u4e00-\u9fff]/.test(String(text || ''))) {
     if (!API.w.translate) { toast('含中文，且翻译接口不可用 → 已拦下（外发禁中文）'); return; }
     const _to = targetLangFor(p);
+    state.ui._sending = true;
     toast('检测到中文 → 翻译成 ' + _to.toUpperCase() + '…');
     API.w.translate(String(text), _to).then(function (r) {
+      state.ui._sending = false;
+      /* 草稿版本校验：翻译期间用户又改了输入 → 取消本次发送（防发错草稿） */
+      const _inp = document.querySelector('#view [data-csend]');
+      if (_inp && _inp.value.trim() && _inp.value.trim() !== _draft0) { toast('草稿已改动 → 已取消本次发送，请重发'); render(); return; }
       const tr = (r && r.ok && r.text) ? String(r.text) : '';
       if (!tr || /[\u4e00-\u9fff]/.test(tr)) { toast('翻译失败 / 译文仍含中文 → 已拦下，不发送'); render(); return; }
       const _bad = trGuard(text, tr);
       if (_bad.length) { toast('译文与原文不一致（' + _bad.join('/') + '）→ 已拦下，请人工核对'); render(); return; }
       _emit(tr, text);
-    }).catch(function () { toast('翻译失败 → 已拦下，不发送'); render(); });
+    }).catch(function () { state.ui._sending = false; toast('翻译失败 → 已拦下，不发送'); render(); });
     return;
   }
   _emit(text, null);
