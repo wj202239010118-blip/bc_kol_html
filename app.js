@@ -1809,6 +1809,7 @@ function loadChatMsgs(pid) {
   const p = c.people.find(x => String(x.pid) === String(pid)); if (!p) return;
   const acct = state.ui.thread || (p.threads[0] && p.threads[0].acct) || '';
   const th = p.threads.find(t => t.acct === acct) || p.threads[0]; if (!th) return;
+  if (p.kind === 'group' && p.plat !== 'WA') loadGroupMembers(p);   /* 2026-10-03: 群成员（人数+名单） */
   /* 2026-10-03: WA 会话走 /wa/chat（ref=jid/gid），缓存用 'wa' 伪账号 */
   if (p.plat === 'WA' && API.chat.waReadChat) {
     const cw = API.chat.cacheGet('wa', pid);
@@ -1864,6 +1865,22 @@ function loadChatDialogs() {
 }
 /* 2026-10-03: 渲染后懒加载头像（TG dataURI / WA CDN url）；失败静默回落首字母。
  * 只排队"大致可见"的（列表可滚动，152 条不必要全拉）+ 并发 4（后端单线程 worker 会被打爆）。 */
+/* 2026-10-03: 群成员（/tg/members → 名称列表，管理员排最前） */
+function loadGroupMembers(p) {
+  if (!(window.API && API.chat && API.chat.members)) return;
+  if (p._memLoaded || p._memLoading) return;
+  p._memLoading = true;
+  API.chat.members(String(p.pid)).then(function (r) {
+    p._memLoading = false;
+    if (r && r.ok && Array.isArray(r.members) && r.members.length) {
+      var list = r.members.slice().sort(function (a, b) { return (b.admin ? 1 : 0) - (a.admin ? 1 : 0); });
+      p.members = list.map(function (m) { return m.name || m.username || String(m.id || ''); }).filter(Boolean);
+      p.memRaw = list;
+      p._memLoaded = true;
+      render();
+    }
+  }).catch(function () { p._memLoading = false; });
+}
 var _avQ = [], _avBusy = 0;
 function _avPump() {
   while (_avBusy < 4 && _avQ.length) {

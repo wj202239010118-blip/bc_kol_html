@@ -20,7 +20,7 @@
     '/cs-inbox': 'inbox', '/cs-sheet-deals': 'deals', '/cs-monitor': 'monitor',
     '/notify-feed': 'notify', '/cs-approvals': 'approvals', '/notes': 'notes',
     '/quote/history': 'quote', '/quote/progress': 'quote-progress', '/quote/result': 'quote-result', '/quote/analyze': 'quote-channel',
-    '/tg/avatar': 'avatar', '/wa/avatar': 'wa-avatar', '/wa/messages': 'wa-messages', '/wa/chat': 'wa-chat', '/wa/groups': 'wa-groups',
+    '/tg/avatar': 'avatar', '/tg/members': 'members', '/wa/avatar': 'wa-avatar', '/wa/messages': 'wa-messages', '/wa/chat': 'wa-chat', '/wa/groups': 'wa-groups',
     '/tg/dialogs': 'dialogs', '/tg/read-chat': 'chat'
   };
 

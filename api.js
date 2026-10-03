@@ -248,6 +248,11 @@
   API.chat.waReadChat = function (ref, limit) {
     return apiGet('/wa/chat', { ref: String(ref), limit: String(limit || 80) }, TG_TIMEOUT);
   };
+  API.chat.members = function (chatId, acct) {
+    var q = { chat_id: String(chatId) };
+    if (acct) q.acct = acct;
+    return apiGet('/tg/members', q, TG_TIMEOUT);
+  };
   var AV_MEM = Object.create(null);
   API.avatar = function (kind, id) {
     kind = String(kind || 'tg').toLowerCase(); id = String(id || '');
