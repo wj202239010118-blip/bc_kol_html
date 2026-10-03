@@ -583,6 +583,7 @@ const screens = {
         <div class="field"><label>频道 / 链接</label>
           <div class="row"><input class="input grow" id="qInput" placeholder="kick.com/… 或 twitch.tv/…" value="kick.com/CASINONOAH">
           <button class="btn primary" id="qGo">分析</button></div></div>
+        ${state.ui.quoteBusy ? `<div class="notice" id="quoteBusy">⏳ 报价中… ${esc(state.ui.quoteStage || '')}（已 ${state.ui.quoteSecs || 0}s）</div>` : ''}
         <div class="result card tight pad">
           <div class="spread"><b>${esc(s.channel)}</b><span class="row"><span class="pill accent">档位 ${esc(s.tier)}</span><button class="btn sm ghost" data-quote-copy-title>复制报价</button></span></div>
           <div class="big">${esc(s.range)} <span class="muted" style="font-size:var(--fs-sm)">/ 场</span></div>
@@ -1089,7 +1090,7 @@ function firstLoadSkeleton() {
 }
 
 function bindView() {
-  const q = $('#qGo'); if (q) q.onclick = () => toast('分析中…（Phase 2 接 /quote/analyze-chat）');
+  const q = $('#qGo'); if (q) q.onclick = () => runQuoteAnalyze(($('#qInput') || {}).value || '');
   $$('.switch').forEach(sw => sw.onclick = () => {
     const on = sw.getAttribute('aria-checked') === 'true';
     sw.setAttribute('aria-checked', String(!on));
@@ -1183,6 +1184,115 @@ function parseReport(text) {
   });
   return out;
 }
+/* ── 报价分析 / 登记（2026-10-03：接 /quote/analyze-chat + /cs-sheet-deal-sync）── */
+function quoteGet(path, params, timeoutMs) {
+  if (window.API && API.get) return API.get(path, params, timeoutMs);
+  return Promise.reject(new Error('API 未就绪'));
+}
+const RE_CHANNEL = /(kick\.com|twitch\.tv)\/([A-Za-z0-9_\-]+)/i;
+function runQuoteAnalyze(chat) {
+  chat = String(chat || '').trim();
+  if (!chat) { toast('请输入频道链接 / uid'); return; }
+  if (!(window.API && API.w && API.w.quoteAnalyze)) { toast('报价接口未就绪'); return; }
+  const job = 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const isChannel = RE_CHANNEL.test(chat);   /* 频道链接 → GET /quote/analyze；uid/会话链接 → POST /quote/analyze-chat */
+  state.ui.quoteBusy = true; state.ui.quoteStage = isChannel ? '查询频道数据中' : '读取聊天中'; state.ui.quoteSecs = 0;
+  render();
+  const tick = setInterval(function () {
+    state.ui.quoteSecs = (state.ui.quoteSecs || 0) + 2;
+    /* 只就地改进度文案文本 —— 绝不整页 render()（否则每 2s 全窗口重绘/刷屏） */
+    const paint = function () {
+      const el = document.getElementById('quoteBusy');
+      if (el) el.textContent = '⏳ 报价中… ' + (state.ui.quoteStage || '') + '（已 ' + (state.ui.quoteSecs || 0) + 's）';
+    };
+    if (isChannel) { paint(); return; }   /* 频道模式没有进度文件 */
+    quoteGet('/quote/progress', { job: job }).then(function (p) {
+      if (p && p.stage) state.ui.quoteStage = p.stage + (p.total ? ' ' + (p.index || 0) + '/' + p.total : '');
+      paint();
+    }).catch(function () { paint(); });
+  }, 2000);
+  (isChannel ? quoteGet('/quote/analyze', { channel: RE_CHANNEL.exec(chat)[0] }, 180000)
+             : API.w.quoteAnalyze(chat, job)).then(function (r) {
+    clearInterval(tick); state.ui.quoteBusy = false;
+    if (!r || r.ok === false) { toast('报价失败：' + ((r && (r.err || r.error)) || '未知错误')); render(); return; }
+    if (!isChannel && r.cancelled) { toast('报价已取消'); render(); return; }
+    if (isChannel) applyChannelResult(chat, r); else applyQuoteResult(chat, r);
+    render(); toast('报价完成');
+  }).catch(function (e) {
+    clearInterval(tick);
+    if (isChannel) { state.ui.quoteBusy = false; toast('报价失败：' + String((e && e.message) || e).slice(0, 90)); render(); return; }
+    /* fetch 中断（后端可能已跑完）→ 用 /quote/result 兜底取回 */
+    quoteGet('/quote/result', { job: job }).then(function (r2) {
+      state.ui.quoteBusy = false;
+      if (r2 && r2.ok) { applyQuoteResult(chat, r2); render(); toast('报价完成（结果已取回）'); }
+      else { toast('报价失败：' + String((e && e.message) || e).slice(0, 80)); render(); }
+    }).catch(function () { state.ui.quoteBusy = false; toast('报价失败'); render(); });
+  });
+}
+function applyQuoteResult(chat, r) {
+  const d = (r && r.data) || {};
+  const v = (r && r.verdict) || {};
+  const est = d['每场预估'] || {};
+  const rc = d['复核'] || {};
+  const price = (v.price_range && v.price_range.range) || '';
+  const facts = [];
+  if (d.platform || d.source) facts.push(['平台', String(d.platform || d.source)]);
+  if (est['每场充值'] != null) facts.push(['每场充值', '$' + est['每场充值'] + (est['场次'] ? '（' + est['场次'] + ' 场）' : '')]);
+  else if (est['总充值'] != null) facts.push(['数据图总充值', '$' + est['总充值']]);
+  if (rc['注册'] || rc['充值人数'] || rc['充值总额'])
+    facts.push(['数据图复核', '注册 ' + (rc['注册'] || '-') + ' · 充值 ' + (rc['充值人数'] || '-') + ' · 总充值 $' + (rc['充值总额'] || '-')]);
+  if (d['tier_note']) facts.push(['说明', String(d['tier_note'])]);
+  const risks = [].concat(d.warnings || [], v.risk_warnings || []);
+  const ch = String(d.channel || chat).replace(/^https?:\/\//, '');
+  M.quote.sample = { channel: ch, tier: String(d.tier || '—'), range: price || '—',
+                     facts: facts.length ? facts : [['状态', '暂无可展示数据']], risks: risks };
+  if (Array.isArray(M.quote.history)) {
+    M.quote.history.unshift({ channel: ch, tier: String(d.tier || '—'), range: price || '—', when: '刚刚' });
+    M.quote.history = M.quote.history.slice(0, 30);
+  }
+}
+function legendRange(tier) {
+  const key = (String(tier || '').match(/[AB]\+?/) || [''])[0];
+  const hit = ((M.quote && M.quote.legend) || []).filter(function (x) { return x.tier === key; })[0];
+  return hit ? hit.range : '';
+}
+function applyChannelResult(chat, r) {
+  const res = (r && r.results && r.results[0]) || {};
+  const mk = res.metrics || {};
+  const facts = [];
+  if (res.source) facts.push(['平台', String(res.source)]);
+  if (mk.followers != null) facts.push(['粉丝', String(mk.followers) + (mk.is_live ? '（直播中 ' + (mk.viewer_count || 0) + ' 人）' : '')]);
+  if (mk.avg_viewers != null) facts.push(['均观', String(mk.avg_viewers)]);
+  if (mk.hours_30d != null) facts.push(['30天时长', mk.hours_30d + 'h']);
+  else if (mk.vod_count != null) facts.push(['近30场', String(mk.vod_count) + ' 场 / ' + (mk.active_days || '?') + ' 天']);
+  if (res.tier_note) facts.push(['定档说明', String(res.tier_note)]);
+  const risks = [].concat(res.warnings || []);
+  if (res.scammer) risks.push('⚠️ 骗子档命中');
+  if (res.watchlist && res.watchlist.in_watch) risks.push('观察名单命中');
+  const ch = String(res.channel || chat);
+  M.quote.sample = { channel: ch, tier: String(res.tier || '—'), range: legendRange(res.tier) || '—',
+                     facts: facts.length ? facts : [['状态', '无更多数据']], risks: risks };
+  if (Array.isArray(M.quote.history)) {
+    M.quote.history.unshift({ channel: ch, tier: String(res.tier || '—'), range: legendRange(res.tier) || '—', when: '刚刚' });
+    M.quote.history = M.quote.history.slice(0, 30);
+  }
+}
+function registerPerson(uid, name) {
+  uid = String(uid || '').trim(); name = String(name || '').trim() || uid;
+  if (!uid) { toast('缺少 UID'); return; }
+  if (!(window.API && API.w && API.w.dealSync)) { toast('登记接口未就绪'); return; }
+  state.ui.confirm = {
+    title: '登记网红',
+    body: '把 ' + name + '（UID ' + uid + '）登记进合作总表？',
+    ok: function () {
+      API.w.dealSync({ uid: uid, name: name, coop_stage: '要数据' }).then(function (r) {
+        if (r && r.ok === false) toast('登记失败：' + (r.err || r.error || ''));
+        else toast('已登记 ' + name);
+      });
+    }
+  };
+  renderSheet();
+}
 document.addEventListener('click', e => {
   const t = e.target;
   const val = (id, d) => { const el = document.getElementById(id); return el ? el.value : d; };
@@ -1197,6 +1307,8 @@ document.addEventListener('click', e => {
   if (t.closest('[data-net-hist]')) { state.ui.netHist = !state.ui.netHist; render(); return; }
   if (t.closest('[data-net-prog-toggle]')) { state.ui.netProg = state.ui.netProg === false; render(); return; }
   if (t.closest('[data-quote-refresh]')) { toast('报价历史已刷新'); return; }
+  const qp = t.closest('[data-quote-uid]'); if (qp) { runQuoteAnalyze(qp.dataset.quoteUid); return; }
+  const rp = t.closest('[data-reg-uid]'); if (rp) { registerPerson(rp.dataset.regUid, rp.dataset.regName); return; }
   if (t.closest('[data-q-legend-toggle]')) { state.ui.qLegend = state.ui.qLegend === false; render(); return; }
   if (t.closest('[data-quote-copy-title]')) { const s = M.quote.sample; copyText(s.channel + ' · 档位 ' + s.tier + ' · ' + s.range + '/场'); return; }
   const qc = t.closest('[data-quote-copy]');
@@ -1449,7 +1561,8 @@ document.addEventListener('click', e => {
   }
   if (t.closest('[data-auth-copy]')) { const n = state.ui.newAcct || {}; copyText((n.u || '') + ' / ' + (n.pw || '')); return; }
   if (t.closest('[data-auth-newkey]')) {
-    const base = (localStorage.getItem('kol-ext-base') || localStorage.getItem('kol-api-base') || 'http://127.0.0.1:8765').replace(/\/+$/, '');
+    const _lo2 = location.origin || '';
+    const base = (localStorage.getItem('kol-ext-base') || localStorage.getItem('kol-api-base') || (/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(_lo2) ? 'http://127.0.0.1:8765' : _lo2)).replace(/\/+$/, '');
     const kk = (localStorage.getItem('kol-key') || '');
     fetch(base + '/keys/new', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, kk ? { 'X-Kol-Key': kk } : {}), body: JSON.stringify({ role: 'user', label: 'colega' }) })
       .then(r => r.json())
@@ -1756,7 +1869,7 @@ function chatPane(p) {
       <button class="btn icon ghost nw" data-back aria-label="返回">${I.arrow}</button>
       <span class="ava ${p.plat === 'WA' ? 'wa' : ''}">${esc(p.name[0])}</span>
       <div class="grow" style="text-align:left"><b class="trunc">${esc(p.name)}</b><div class="dim">${esc(thread.acct ? acctLabel(thread.acct) : '')} · ${esc(p.plat)}${p.stage ? ' · ' + esc(p.stage) : ''}</div></div>
-      <button class="btn sm" data-t="报价：kick.com/CASINONOAH · 档位 A · $40–60/场（mock）">报价</button><button class="btn sm" data-t="登记该网红（mock）">登记</button>
+      <button class="btn sm" data-quote-uid="${esc(p.pid)}">报价</button><button class="btn sm" data-reg-uid="${esc(p.pid)}" data-reg-name="${esc(p.name)}">登记</button>
     </header>
     <div class="tg-subtabs">${subtabs}</div>
     <div class="tg-msgs">${bubbles}</div>

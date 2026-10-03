@@ -19,6 +19,7 @@
   var OP_BY_PATH = {
     '/cs-inbox': 'inbox', '/cs-sheet-deals': 'deals', '/cs-monitor': 'monitor',
     '/notify-feed': 'notify', '/cs-approvals': 'approvals', '/notes': 'notes',
+    '/quote/history': 'quote', '/quote/progress': 'quote-progress', '/quote/result': 'quote-result', '/quote/analyze': 'quote-channel',
     '/tg/dialogs': 'dialogs', '/tg/read-chat': 'chat'
   };
 
@@ -27,7 +28,11 @@
   function sha256b64(bytes) { return crypto.subtle.digest('SHA-256', bytes).then(b64); }
   function uuids(n) { return (crypto.randomUUID ? crypto.randomUUID() : ('' + Math.random() + Date.now())).replace(/-/g, '').slice(0, n || 24); }
 
-  function base() { return (ls(K_BASE, '') || '').replace(/\/+$/, ''); }
+  function base() {
+    var b = ls(K_BASE, '') || '';
+    if (!b) { try { var o = location.origin; if (o && !/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(o)) b = o; } catch (e) {} }
+    return String(b || '').replace(/\/+$/, '');
+  }
   function active() { return !!base(); }
 
   /* ① 设备密钥（P-256，WebCrypto 出 raw r||s，与后端一致） */
@@ -110,14 +115,20 @@
   function signedFetch(method, path, params, bodyObj) {
     return ensureKey().then(function (dev) {
       var query = buildQuery(params);
-      var ctype = bodyObj ? 'application/octet-stream' : '';
-      var bodyP = bodyObj ? encBlob(new TextEncoder().encode(JSON.stringify(bodyObj))) : Promise.resolve(null);
+      /* 2026-10-03: 有 X-Kol-Key → 走网关“密钥通道”（免签名、服务端不解密）→ 明文 JSON；
+         否则走“设备签名通道”（E2E 加密请求体）。二者网关择一处理，混用会致 body 收不到。 */
+      var haveKey = false; try { haveKey = !!localStorage.getItem('kol-key'); } catch (e) {}
+      var ctype = bodyObj ? (haveKey ? 'application/json' : 'application/octet-stream') : '';
+      var bodyP = bodyObj
+        ? (haveKey ? Promise.resolve(new TextEncoder().encode(JSON.stringify(bodyObj)))
+                   : encBlob(new TextEncoder().encode(JSON.stringify(bodyObj))))
+        : Promise.resolve(null);
       return bodyP.then(function (cipher) {
         var shaP = cipher ? sha256b64(cipher) : Promise.resolve('');
         return shaP.then(function (bsha) {
           return signHeaders(dev, method, path, query, ctype, bsha).then(function (s) {
             var url = base() + path + (query ? ('?' + query) : '');
-            var h = Object.assign({ Accept: 'application/json', 'X-KOL-Enc': 'aesgcm' }, s.headers);
+            var h = Object.assign({ Accept: 'application/json' }, haveKey ? {} : { 'X-KOL-Enc': 'aesgcm' }, s.headers);
             try { var _k = localStorage.getItem('kol-key'); if (_k) h['X-Kol-Key'] = _k; } catch (e) {}
             if (ctype) h['Content-Type'] = ctype;
             return fetch(url, { method: method, headers: h, body: cipher || undefined, cache: 'no-store' }).then(function (r) {
@@ -140,8 +151,9 @@
   }
   /* 写：路径 → op（对齐后端 WRITE_OPS）；也可 opts.op 显式覆盖 */
   var WRITE_OP_BY_PATH = {
-    '/notes-sync': 'notes-sync', '/report-ledger': 'report-ledger', '/withdraw-step': 'withdraw-step',
-    '/tg-send': 'tg-send', '/group-members': 'group-members', '/create-group': 'create-group'
+    '/notes-sync': 'notes-sync', '/report-parse': 'report-parse', '/report-ledger': 'report-ledger', '/withdraw-step': 'withdraw-step',
+    '/tg-send': 'tg-send', '/group-members': 'group-members', '/create-group': 'create-group',
+    '/quote/analyze-chat': 'quote-analyze', '/cs-sheet-deal-sync': 'deal-sync'
   };
   function post(path, body, opts) {
     var op = (opts && opts.op) || WRITE_OP_BY_PATH[path] || null;

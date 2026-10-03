@@ -184,7 +184,9 @@
         const k = (q('[data-ak]').value || '').trim();
         if (!k) return showErr('请粘贴密钥');
         try {
-          const base = (localStorage.getItem('kol-ext-base') || localStorage.getItem('kol-api-base') || 'http://127.0.0.1:8765').replace(/\/+$/, '');
+          const _lo = location.origin || '';
+          const _def = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(_lo) ? 'http://127.0.0.1:8765' : _lo;
+          const base = (localStorage.getItem('kol-ext-base') || localStorage.getItem('kol-api-base') || _def).replace(/\/+$/, '');
           const r = await fetch(base + '/ext/me', { headers: { 'X-Kol-Key': k }, cache: 'no-store' }).then(x => x.json());
           if (!r || !r.ok || !r.role) return showErr('密钥无效或已吊销');
           localStorage.setItem('kol-key', k); localStorage.setItem('kol-role', r.role);

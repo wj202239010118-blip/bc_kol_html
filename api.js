@@ -16,6 +16,7 @@
   var TIMEOUT = 8000;
   var TIMEOUT_HEAVY = 20000;   /* 重接口（大表/多行）单独放宽：并发首拉时 8s 不够 */
   var TG_TIMEOUT = 180000;     /* /tg/* 网关会【懒启动 TG worker】（秒级~分钟级）→ 必须长超时（默认 8s 会 abort）*/
+  var QUOTE_TIMEOUT = 300000;  /* /quote/analyze-chat 读会话+识图+平台外呼，分钟级 → 5 分钟超时 */
   /* 注：不含 /night-inbox —— 用户明确“消息不要夜间队列”（2026-10-02）*/
   var HEAVY = { '/data-sheet13': 1, '/data': 1, '/contact-filter/status': 1, '/cs-sheet-deals': 1, '/outreach-queue': 1, '/stream-sessions': 1, '/coop-members': 1, '/coop-active': 1 };
 
@@ -166,7 +167,10 @@
     delGroups:    function (b)           { return apiPost('/del-groups', b); },
     reportParse:  function (uids, opt)   { return apiPost('/report-parse', Object.assign({ uids: [].concat(uids) }, opt || {})); },
     reportLedger: function (b)           { return apiPost('/report-ledger', b); },   /* {op,rows|ids} */
-    withdrawStep: function (id, state, extra) { return apiPost('/withdraw-step', Object.assign({ id: id, state: state }, extra || {})); }
+    withdrawStep: function (id, state, extra) { return apiPost('/withdraw-step', Object.assign({ id: id, state: state }, extra || {})); },
+    /* 2026-10-03: 报价分析（读会话→出报价，分钟级 → 长超时）+ 登记（写合作总表，按 UID upsert） */
+    quoteAnalyze: function (chat, jobId) { return apiPost('/quote/analyze-chat', { chat: String(chat || ''), job_id: jobId || ('q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)) }, { timeout: QUOTE_TIMEOUT }); },
+    dealSync:     function (b)           { return apiPost('/cs-sheet-deal-sync', b); }   /* {uid,name,account,platform,coop_stage,collect} */
   };
 
   /* ── 聊天数据层（2026-10-02）：真实会话/消息 + 本地缓存 ─────────────────
